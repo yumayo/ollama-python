@@ -1,0 +1,69 @@
+services:
+  python:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/python/src:/app/src
+      - ./docker/python/requirements.txt:/app/requirements.txt
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    working_dir: /app/src
+    command: python main.py
+    networks:
+      - bridge_net
+      - internal_net
+
+  # Ollama サービス（ネットワーク隔離）
+  ollama:
+    image: ollama/ollama:latest
+    expose:
+      - "11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - internal_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # モデルダウンロード専用コンテナ（一時的）
+  ollama-downloader:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_downloader_data:/root/.ollama
+    networks:
+      - bridge_net
+
+  # ダウンロードしたモデルをollama_dataにコピーする
+  ollama-sync:
+    build:
+      context: .
+      dockerfile: docker/ollama-sync/Dockerfile
+    volumes:
+      - ollama_data:/app/ollama/internal/.ollama
+      - ollama_downloader_data:/app/ollama/download/.ollama
+    network_mode: none
+
+volumes:
+  ollama_data:
+    driver: local
+  ollama_downloader_data:
+    driver: local
+
+networks:
+  internal_net:
+    driver: bridge
+    internal: true
+  bridge_net:
+    driver: bridge
